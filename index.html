@@ -140,6 +140,13 @@
   input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
   input[type=number]{-moz-appearance:textfield;}
   @keyframes spin{to{transform:rotate(360deg);}}
+
+  /* Sub-Tabs im Pokémon-Info-Tab */
+  .pi-subtab{background:var(--surface);border:1px solid var(--border);color:var(--muted);
+    padding:6px 16px;border-radius:4px;cursor:pointer;font-family:'Exo 2',sans-serif;
+    font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;transition:all 0.2s;}
+  .pi-subtab:hover{border-color:var(--accent);color:var(--accent);}
+  .pi-subtab.active{background:var(--accent);color:var(--bg);border-color:var(--accent);}
 </style>
 </head>
 <body>
@@ -209,6 +216,11 @@ window.addEventListener('load', () => {
 <div id="tab-pokemon" class="tab active">
   <p class="section-title">Pokémon-Info</p>
   <div style="max-width:680px;margin:0 auto;">
+    <!-- Sub-Tabs: Suche vs. Gegner -->
+    <div style="display:flex;justify-content:center;gap:8px;margin-bottom:16px;">
+      <button id="pi-mode-search" class="pi-subtab active" onclick="showPiMode('search')">🔍 Suche</button>
+      <button id="pi-mode-enemy" class="pi-subtab" onclick="showPiMode('enemy')">⚔ Gegner</button>
+    </div>
     <div style="text-align:center;margin-bottom:16px;">
       <img src="https://i.imgur.com/aw2c7BQ.png" alt=""
         onclick="document.getElementById('lightbox').style.display='flex'"
@@ -217,11 +229,19 @@ window.addEventListener('load', () => {
     <div style="text-align:center;margin-bottom:14px;min-height:80px;display:flex;align-items:center;justify-content:center;">
       <img id="pi-sprite" src="" alt="" style="width:96px;height:96px;image-rendering:pixelated;display:none;">
     </div>
-    <div class="poke-dropdown-wrap" style="margin-bottom:14px;">
+    <!-- Such-Panel (sichtbar im Suche-Modus) -->
+    <div id="pi-search-panel" class="poke-dropdown-wrap" style="margin-bottom:14px;">
       <input class="poke-search" id="pi-search" type="text" placeholder="Pokémon suchen..."
         autocomplete="off" oninput="filterPI(this.value)" onfocus="openPI()"
         style="font-size:14px;padding:10px 14px;">
       <div class="poke-list" id="pi-list"></div>
+    </div>
+    <!-- Gegner-Slot-Picker (sichtbar bei Trainer mit mehreren Pokémon) -->
+    <div id="pi-enemy-slots" style="display:none;justify-content:center;gap:6px;margin-bottom:12px;flex-wrap:wrap;"></div>
+    <!-- Gegner-Status (sichtbar im Gegner-Modus, wenn kein Gegner) -->
+    <div id="pi-enemy-panel" style="display:none;text-align:center;margin-bottom:14px;padding:24px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
+      <div style="color:var(--muted);font-size:13px;">⚔ Kein Gegner im Kampf</div>
+      <div style="color:var(--muted);font-size:11px;margin-top:6px;">Sobald ein Wild- oder Trainer-Kampf läuft, erscheint hier automatisch das gegnerische Pokémon.</div>
     </div>
     <div id="pi-output" style="display:none;">
       <div style="text-align:center;margin-bottom:12px;">
@@ -270,8 +290,8 @@ window.addEventListener('load', () => {
       </div>
       <!-- Attacken -->
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;">
-        <div style="font-family:'Press Start 2P',monospace;font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:12px;">ATTACKEN BEI LEVEL</div>
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+        <div id="pi-attacks-title" style="font-family:'Press Start 2P',monospace;font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:12px;">ATTACKEN BEI LEVEL</div>
+        <div id="pi-level-controls" style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
           <span style="font-family:'Press Start 2P',monospace;font-size:10px;color:var(--muted);">Lv.</span>
           <input type="range" id="lv-slider" min="1" max="100" value="50"
             style="flex:1;accent-color:var(--accent);" oninput="syncLv('slider')">
@@ -284,6 +304,11 @@ window.addEventListener('load', () => {
         <div id="pi-moves" style="display:flex;flex-direction:column;gap:7px;">
           <div style="color:var(--muted);font-size:13px;">Wähle ein Pokémon aus.</div>
         </div>
+        <!-- Aktuelles Moveset (nur im Gegner-Modus sichtbar — ersetzt dann das Obige komplett) -->
+        <div id="pi-actual-moves-box" style="display:none;">
+          <div id="pi-actual-moves-title" style="font-family:'Press Start 2P',monospace;font-size:9px;color:var(--dead);letter-spacing:1px;margin-bottom:10px;">⚔ AKTUELLES MOVESET</div>
+          <div id="pi-actual-moves-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+        </div>
       </div>
     </div>
     <div id="pi-loading" style="text-align:center;color:var(--muted);font-size:13px;display:none;margin-top:20px;"></div>
@@ -293,10 +318,39 @@ window.addEventListener('load', () => {
 <!-- ══ TEAM & BOX ══ -->
 <div id="tab-team" class="tab">
   <p class="section-title">Team & Box</p>
-  <div class="toolbar">
-    <button class="btn-primary" onclick="addPoke()">+ Pokémon hinzufügen</button>
+
+  <!-- AutoTracker-Live-Anzeige -->
+  <div id="autotracker-panel" style="display:none;background:rgba(79,195,247,0.05);border:1px solid rgba(79,195,247,0.3);border-radius:8px;padding:14px;margin-bottom:18px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap;">
+      <div style="font-family:'Press Start 2P',monospace;font-size:9px;color:var(--accent);letter-spacing:1px;">🎮 AUTOTRACKER (LIVE)</div>
+      <div style="display:flex;align-items:center;gap:10px;font-size:11px;color:var(--muted);">
+        <span>Map-ID: <span id="auto-map">–</span><span id="auto-map-route"></span></span>
+        <span>·</span>
+        <span id="auto-age">–</span>
+        <button onclick="showMapMappings()" title="Alle Map-Zuordnungen verwalten" style="background:var(--surface2);border:1px solid var(--border);color:var(--muted);padding:3px 10px;border-radius:4px;font-size:10px;cursor:pointer;">🗺 Zuordnungen</button>
+      </div>
+    </div>
+    <!-- Map-ID-Zuordnung (wenn unbekannt) -->
+    <div id="auto-mapbanner" style="display:none;background:rgba(255,213,79,0.08);border:1px solid rgba(255,213,79,0.4);border-radius:6px;padding:10px;margin-bottom:12px;">
+      <div style="font-size:12px;margin-bottom:8px;">🗺️ Map-ID <strong id="auto-newmap">–</strong> ist noch keiner Route zugeordnet.</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <select id="auto-route-select" style="flex:1;min-width:160px;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:4px;font-family:'Exo 2',sans-serif;font-size:13px;"></select>
+        <button class="btn-primary" onclick="assignMap()" style="padding:6px 16px;">Zuordnen</button>
+      </div>
+    </div>
+    <div id="auto-team-label" style="display:none;font-family:'Press Start 2P',monospace;font-size:8px;color:var(--accent3);letter-spacing:1px;margin:6px 0;">TEAM</div>
+    <div id="auto-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;"></div>
+    <div id="auto-box-label" style="display:none;font-family:'Press Start 2P',monospace;font-size:8px;color:var(--muted);letter-spacing:1px;margin:14px 0 6px;">PC-BOX (<span id="auto-box-count">0</span>)</div>
+    <div id="auto-box-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;"></div>
   </div>
-  <div class="poke-grid" id="poke-grid"></div>
+
+  <!-- ══ FRIEDHOF ══ (tote Pokémon aus deadPids) -->
+  <div id="graveyard-panel" style="display:none;background:rgba(239,83,80,0.05);border:1px solid rgba(239,83,80,0.3);border-radius:8px;padding:14px;margin-bottom:18px;">
+    <div style="font-family:'Press Start 2P',monospace;font-size:9px;color:var(--dead);letter-spacing:1px;margin-bottom:10px;">💀 FRIEDHOF (<span id="graveyard-count">0</span>)</div>
+    <div id="graveyard-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;"></div>
+  </div>
+
+  <!-- Manuelle Pokémon-Verwaltung entfernt — alles läuft jetzt über den AutoTracker. -->
 </div>
 
 <!-- ══ ENCOUNTER ══ -->
@@ -352,6 +406,28 @@ window.addEventListener('load', () => {
   </div>
 </div>
 
+<!-- Map-Zuordnungen-Modal -->
+<div id="mapmap-modal" onclick="if(event.target===this)hideMapMappings()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:5800;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:24px;width:min(540px,92vw);max-height:80vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="font-family:'Press Start 2P',monospace;font-size:10px;color:var(--accent);letter-spacing:1px;">🗺 Map-Zuordnungen</div>
+      <button onclick="hideMapMappings()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:22px;">×</button>
+    </div>
+    <div id="mapmap-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+  </div>
+</div>
+
+<!-- AutoTracker Detail-Modal -->
+<div id="auto-detail-modal" onclick="if(event.target===this)hideAutoDetail()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:6000;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:24px;width:min(520px,92vw);max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div style="font-family:'Press Start 2P',monospace;font-size:10px;color:var(--accent);letter-spacing:1px;" id="auto-detail-slot">Slot</div>
+      <button onclick="hideAutoDetail()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:22px;">×</button>
+    </div>
+    <div id="auto-detail-body"></div>
+  </div>
+</div>
+
 <!-- Lightbox -->
 <div id="lightbox" onclick="this.style.display='none'"
   style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:9000;align-items:center;justify-content:center;cursor:zoom-out;">
@@ -387,13 +463,18 @@ let currentListener = null;
 
 function save() {
   isSaving = true;
-  dataRefFor(currentRunId).set(data).finally(() => {
+  // autoTeam wird ausschließlich von der Lua-Brücke geschrieben — beim
+  // Speichern unserer manuellen Daten lassen wir es bewusst aus.
+  const { autoTeam, ...payload } = data;
+  dataRefFor(currentRunId).set(payload).finally(() => {
     setTimeout(() => isSaving = false, 300);
   });
 }
 
 function subscribeToRun() {
   if (currentListener) dataRefFor(currentRunId).off('value', currentListener);
+  // Aktiven Run an Firebase melden — Python-Brücke pollt diesen Wert
+  db.ref(NS + '/_active_run').set(currentRunId).catch(() => {});
   currentListener = dataRefFor(currentRunId).on('value', snap => {
     if (isSaving) return;
     const val = snap.val();
@@ -500,6 +581,41 @@ function ensureDefaultRun() {
 ensureDefaultRun();
 subscribeToRun();
 
+// ── Globale Daten (Run-übergreifend) ──
+// Map-ID → Route-Zuordnungen gehören zum Spiel, nicht zum Run.
+let _globalData = { mapIdToRoute: {} };
+db.ref(NS + '/_global').on('value', snap => {
+  _globalData = snap.val() || {};
+  if (!_globalData.mapIdToRoute) _globalData.mapIdToRoute = {};
+  if (typeof render === 'function') render();
+  // Migration: alte per-run Mappings einmalig nach global hochziehen
+  if (data && data.mapIdToRoute) migrateMappingsToGlobal();
+});
+
+function migrateMappingsToGlobal() {
+  if (!data.mapIdToRoute) return;
+  const updates = {};
+  let count = 0;
+  for (const [key, route] of Object.entries(data.mapIdToRoute)) {
+    if (_globalData.mapIdToRoute[key] === undefined) {
+      updates['_global/mapIdToRoute/' + key] = route;
+      _globalData.mapIdToRoute[key] = route;
+      count++;
+    }
+  }
+  if (count > 0) {
+    db.ref(NS).update(updates).catch(()=>{});
+    console.log('[Migration] ' + count + ' Map-Zuordnungen nach global übernommen.');
+  }
+}
+
+// Liefert die effektiven Mappings (global + per-run merged)
+function getMapMappings() {
+  const perRun = (data && data.mapIdToRoute) || {};
+  const global = (_globalData && _globalData.mapIdToRoute) || {};
+  return Object.assign({}, perRun, global);   // global wins
+}
+
 // ══ TABS ══
 function showTab(name) {
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -516,6 +632,7 @@ function initRoutes() {
     {name:'Route 19',type:'Route',method:'Gras',done:false,note:''},
     {name:'Route 20',type:'Route',method:'Gras',done:false,note:''},
     {name:'Dausing-Hof',type:'Gebiet',method:'Gras',done:false,note:''},
+    {name:'Vapydro-City',type:'Stadt',method:'–',done:false,note:''},
     {name:'Vapydro-Werke',type:'Gebiet',method:'Gras',done:false,note:''},
     {name:'Stratos-Kanalisation',type:'Höhle',method:'–',done:false,note:''},
     {name:'Alter Fluchtweg',type:'Höhle',method:'–',done:false,note:''},
@@ -529,7 +646,8 @@ function initRoutes() {
     {name:'Hain der Täuschung',type:'Gebiet',method:'Gras',done:false,note:''},
     {name:'Marea-Zugbrücke',type:'Gebiet',method:'Schwarze Punkte',done:false,note:''},
     {name:'Marea City',type:'Stadt',method:'Static',done:false,note:''},
-    {name:'Route 6',type:'Route',method:'Gras/Static',done:false,note:''},
+    {name:'Route 6',type:'Route',method:'Gras',done:false,note:''},
+    {name:'Route 6 (Static)',type:'Geschenk',method:'Static',done:false,note:''},
     {name:'Elektrolithhöhle',type:'Höhle',method:'–',done:false,note:''},
     {name:'Panaero-Höhle',type:'Höhle',method:'–',done:false,note:''},
     {name:'Kammer der Weisung',type:'Höhle',method:'–',done:false,note:''},
@@ -568,11 +686,816 @@ const GYMS=[
 
 // ══ RENDER ══
 function render() {
-  renderTeam();
   renderEncounters();
   renderRoutes();
   renderGyms();
-  document.getElementById('death-num').textContent = (data.pokemon||[]).filter(p=>p.dead).length;
+  renderAutoTeam();
+  renderGraveyard();
+  // Tod-Zähler im Header: alle jemals als tot markierten Pokémon (persistent)
+  document.getElementById('death-num').textContent =
+    Object.keys(data.deadPids || {}).length;
+}
+
+// ══ FRIEDHOF ══
+// Listet die toten Pokémon (data.deadPids: species/nick/level/diedAt) als
+// Karten — Sprite grau, durchgestrichener Name, Todesdatum, Wiederbeleben.
+function renderGraveyard() {
+  const panel = document.getElementById('graveyard-panel');
+  const grid  = document.getElementById('graveyard-grid');
+  if (!panel || !grid) return;
+  const entries = Object.entries(data.deadPids || {});
+  const cntEl = document.getElementById('graveyard-count');
+  if (cntEl) cntEl.textContent = entries.length;
+  if (entries.length === 0) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  // Neueste Tode zuerst
+  entries.sort((a, b) => (b[1].diedAt || 0) - (a[1].diedAt || 0));
+  grid.innerHTML = entries.map(([pid, d]) => {
+    const name = d.nick || (GN[d.species] || ('#' + d.species));
+    const when = d.diedAt ? new Date(d.diedAt).toLocaleDateString('de-DE') : '';
+    return `
+      <div style="background:var(--surface);border:1px solid var(--dead);border-radius:10px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;">
+        <img src="${spriteUrl(d.species)}" style="width:64px;height:64px;image-rendering:pixelated;filter:grayscale(1);opacity:0.65;">
+        <div style="font-size:12px;font-weight:600;color:var(--text);text-decoration:line-through;opacity:0.85;">${name}</div>
+        <div style="font-size:10px;color:var(--muted);">Lv${d.level ?? '?'}${when ? ' · † ' + when : ''}</div>
+        <button onclick="revivePokemon('${pid}')" title="Tot-Markierung entfernen" style="margin-top:4px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:10px;padding:3px 8px;border-radius:4px;cursor:pointer;font-family:'Exo 2',sans-serif;">wiederbeleben</button>
+      </div>`;
+  }).join('');
+}
+
+// ══ AUTOTRACKER (LIVE) ══
+const GERMAN_MOVE_FALLBACK = {0:'–'};
+function renderAutoTeam() {
+  const panel = document.getElementById('autotracker-panel');
+  const grid  = document.getElementById('auto-grid');
+  if (!panel || !grid) return;
+  const at = data.autoTeam;
+  const hasTeam  = at && Array.isArray(at.team) && at.team.length > 0;
+  const hasBox   = at && Array.isArray(at.box)  && at.box.length  > 0;
+  if (!hasTeam && !hasBox) { panel.style.display = 'none'; return; }
+
+  // Primärer Key: 5-teiliger Verbund (mapId + Sub + Detail + Area + Biome)
+  const mapKey = autoMapKey(at);
+  const mapping = mapKey ? getMapMappings()[mapKey] : null;
+  document.getElementById('auto-map').textContent = mapKey ?? '–';
+  const mapRouteEl = document.getElementById('auto-map-route');
+  if (mapKey && mapping) {
+    const label = mapping === '__ignore__' ? '(ignoriert)' : mapping;
+    mapRouteEl.innerHTML = ` <span style="color:${mapping === '__ignore__' ? 'var(--muted)' : 'var(--accent3)'};">${label}</span> <a href="#" onclick="deleteMapping('${mapKey}');return false;" style="color:var(--muted);font-size:10px;text-decoration:underline;margin-left:4px;">[ändern]</a>`;
+  } else {
+    mapRouteEl.textContent = '';
+  }
+
+  // Banner für unbekannte Map-ID
+  const banner = document.getElementById('auto-mapbanner');
+  if (mapKey && !mapping) {
+    banner.style.display = 'block';
+    document.getElementById('auto-newmap').textContent = mapKey;
+    const sel = document.getElementById('auto-route-select');
+    // Optionen nur (neu) befüllen, wenn nötig — sonst geht die User-Auswahl
+    // bei jedem Render-Tick verloren.
+    const expected = 2 + (data.routes || []).length;
+    if (sel.options.length !== expected) {
+      const keep = sel.value;
+      const routes = (data.routes || []).map(r => r.name);
+      sel.innerHTML = '<option value="">– Route wählen –</option>'
+        + '<option value="__ignore__">(diese Map ignorieren)</option>'
+        + routes.map(r => `<option value="${r}">${r}</option>`).join('');
+      if (keep) sel.value = keep;
+    }
+  } else {
+    banner.style.display = 'none';
+  }
+
+  // Auto-Logik: Starter, Encounter, Fang, Tod, Orden
+  fillStarter();
+  autoFillEncounter();
+  watchCatch();
+  trackDeaths();
+  autoTickBadges();
+
+  // Falls Pokémon-Tab im Gegner-Modus: Gegner-Daten aktualisieren
+  if (typeof refreshPiEnemy === 'function') refreshPiEnemy();
+
+  // (Gegner-Anzeige wurde in den Pokémon-Tab → ⚔ Gegner verschoben)
+  panel.style.display = 'block';
+
+  document.getElementById('auto-map').textContent = at.mapId ?? '–';
+  const ageS = at.updatedAt ? Math.round((Date.now() - at.updatedAt)/1000) : null;
+  document.getElementById('auto-age').textContent = ageS == null ? '–'
+    : ageS < 5 ? 'live' : (ageS + 's alt');
+
+  // Team — größere Karten, klickbar für Detail-Modal
+  document.getElementById('auto-team-label').style.display = hasTeam ? 'block' : 'none';
+  grid.innerHTML = hasTeam ? at.team.map((m, idx) => {
+    const cur = m.curHP, max = m.maxHP;
+    const hasHP = (typeof cur === 'number' && typeof max === 'number' && max > 0);
+    const ratio = hasHP ? cur / max : 1;
+    // Persistente Tod-Markierung: einmal tot, immer tot (bis manuell wiederbelebt)
+    const isMarkedDead = m.pid && data.deadPids && data.deadPids[String(m.pid)];
+    const isCurrentlyKO = hasHP && cur === 0;
+    const isDead = isMarkedDead || isCurrentlyKO;
+    const hpColor = isDead ? 'var(--dead)'
+      : ratio > 0.5 ? 'var(--accent3)'
+      : ratio > 0.2 ? 'var(--gold)'
+      : 'var(--dead)';
+    const cardBg = isDead
+      ? 'background:rgba(239,83,80,0.08);border:1px solid var(--dead);opacity:0.65;'
+      : 'background:var(--surface);border:1px solid var(--border);';
+    const hpBar = hasHP ? `
+      <div style="width:100%;height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-top:4px;">
+        <div style="width:${ratio * 100}%;height:100%;background:${hpColor};transition:width 0.3s;"></div>
+      </div>
+      <div style="font-size:11px;color:${hpColor};font-weight:600;margin-top:3px;">${cur}/${max} KP${isDead ? ' 💀' : ''}</div>
+    ` : '';
+    const germanName = (typeof GN !== 'undefined' && GN[m.species]) || m.nick || ('#' + m.species);
+    const reviveBtn = isMarkedDead ? `
+      <button onclick="event.stopPropagation();revivePokemon(${m.pid})"
+        title="Wiederbeleben (nur bei Fehler)"
+        style="margin-top:6px;background:none;border:1px solid var(--accent3);color:var(--accent3);padding:3px 10px;border-radius:4px;font-size:10px;cursor:pointer;">
+        ↺ Wiederbeleben
+      </button>` : '';
+    return `
+      <div onclick="showAutoDetail(${idx})" style="cursor:pointer;${cardBg}border-radius:10px;padding:14px 12px 12px;display:flex;flex-direction:column;align-items:center;gap:4px;transition:transform 0.15s, border-color 0.15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.borderColor='var(--accent)';" onmouseout="this.style.transform='';this.style.borderColor='${isDead ? 'var(--dead)' : 'var(--border)'}';">
+        <div style="align-self:flex-start;font-family:'Press Start 2P',monospace;font-size:9px;color:var(--muted);letter-spacing:1px;">#${idx + 1}${isMarkedDead ? ' · 💀' : ''}</div>
+        <img src="${spriteUrl(m.species)}" style="width:80px;height:80px;image-rendering:pixelated;${isDead ? 'filter:grayscale(1);' : ''}">
+        <div style="font-weight:700;font-size:13px;text-align:center;${m.nick ? '' : 'font-style:italic;color:var(--muted);'}">${m.nick || germanName}</div>
+        <div style="font-size:11px;color:var(--muted);">Lv ${m.level} · ${germanName}</div>
+        ${hpBar}
+        ${reviveBtn}
+      </div>
+    `;
+  }).join('') : '';
+
+  // PC-Box
+  const boxLabel = document.getElementById('auto-box-label');
+  const boxGrid  = document.getElementById('auto-box-grid');
+  if (hasBox) {
+    boxLabel.style.display = 'block';
+    document.getElementById('auto-box-count').textContent = at.box.length;
+    boxGrid.innerHTML = at.box.map((m, idx) => {
+      const germanName = (typeof GN !== 'undefined' && GN[m.species]) || ('#' + m.species);
+      return `
+        <div onclick="showAutoDetail('box', ${idx})" title="Box ${m.box}, Slot ${m.slot}" style="cursor:pointer;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 12px 12px;display:flex;flex-direction:column;align-items:center;gap:4px;transition:transform 0.15s, border-color 0.15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.borderColor='var(--accent)';" onmouseout="this.style.transform='';this.style.borderColor='var(--border)';">
+          <div style="align-self:flex-start;font-family:'Press Start 2P',monospace;font-size:9px;color:var(--muted);letter-spacing:1px;">B${m.box}-${m.slot}</div>
+          <img src="${spriteUrl(m.species)}" style="width:80px;height:80px;image-rendering:pixelated;">
+          <div style="font-weight:700;font-size:13px;text-align:center;${m.nick ? '' : 'font-style:italic;color:var(--muted);'}">${m.nick || germanName}</div>
+          <div style="font-size:11px;color:var(--muted);">Lv ${m.level} · ${germanName}</div>
+        </div>
+      `;
+    }).join('');
+  } else {
+    boxLabel.style.display = 'none';
+    boxGrid.innerHTML = '';
+  }
+}
+// 1× pro Sekunde "X Sekunden alt"-Anzeige refreshen
+setInterval(() => { if (data && data.autoTeam) renderAutoTeam(); }, 1000);
+
+// Globaler Map-Key: kanonische Map-Header-ID (wie IronMon-Tracker).
+// Fallback auf alten 4-Teiler für bereits gespeicherte Mappings.
+function autoMapKey(at) {
+  if (!at) return null;
+  if (at.mapHeader != null && at.mapHeader > 0) return String(at.mapHeader);
+  const parts = [at.mapId, at.mapSubId, at.mapDetailId, at.biomePtr]
+    .filter(v => v != null);
+  return parts.length ? parts.join('_') : null;
+}
+
+// ── Gen-5-Item-ID → DE-Name ──
+// Spielinterne Item-IDs aus BW2 (NICHT PokéAPI-Schema).
+// Lückenhaft — wird erweitert wenn neue auftauchen.
+// Item-Namen werden vollständig über PokéAPI geholt (fetchDeName('item', id)).
+// Sofortige Anzeige aus Cache, sonst Async-Fetch + DOM-Update.
+// PokéAPI-Item-IDs decken Gen 5 (1–639) vollständig ab.
+function gen5ItemName(id) {
+  if (!id || id === 0) return '—';
+  const cached = _apiCache['item:' + id];
+  return cached !== undefined ? cached : ('#' + id);
+}
+
+// ── AutoTracker Detail-Modal + DE-Namen via PokéAPI ──
+const _apiCache = {};
+
+async function fetchDeName(kind, id) {
+  if (!id || id <= 0) return '—';
+  const key = kind + ':' + id;
+  if (_apiCache[key] !== undefined) return _apiCache[key];
+  try {
+    const r = await fetch(`https://pokeapi.co/api/v2/${kind}/${id}`);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    const de = (d.names || []).find(n => n.language && n.language.name === 'de');
+    const name = de ? de.name : (kind + ' ' + id);
+    _apiCache[key] = name;
+    return name;
+  } catch {
+    return kind + ' ' + id;
+  }
+}
+
+// Base Stats für ein Pokémon abrufen (mit Cache)
+async function fetchPokemonStats(speciesId) {
+  const key = 'stats:' + speciesId;
+  if (_apiCache[key] !== undefined) return _apiCache[key];
+  try {
+    const r = await fetch(`https://pokeapi.co/api/v2/pokemon/${speciesId}`);
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    const stats = {};
+    (d.stats || []).forEach(s => { stats[s.stat.name] = s.base_stat; });
+    _apiCache[key] = stats;
+    return stats;
+  } catch {
+    return null;
+  }
+}
+
+const STAT_LABELS = {
+  'hp':              'KP',
+  'attack':          'Angriff',
+  'defense':         'Verteidigung',
+  'special-attack':  'Sp.-Ang',
+  'special-defense': 'Sp.-Vert',
+  'speed':           'Initiative',
+};
+const STAT_ORDER = ['hp','attack','defense','special-attack','special-defense','speed'];
+
+function renderBSTBars(stats) {
+  const total = STAT_ORDER.reduce((s,k) => s + (stats[k] || 0), 0);
+  const MAX_BAR = 200;
+  return `
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      ${STAT_ORDER.map(k => {
+        const v = stats[k] || 0;
+        const w = Math.min(v / MAX_BAR * 100, 100);
+        const color = v >= 100 ? 'var(--accent3)' : v >= 70 ? 'var(--gold)' : v >= 40 ? 'var(--accent)' : 'var(--dead)';
+        return `
+          <div style="display:flex;align-items:center;gap:10px;font-size:12px;">
+            <div style="color:var(--muted);width:90px;flex-shrink:0;">${STAT_LABELS[k]}</div>
+            <div style="flex:1;background:var(--surface2);height:6px;border-radius:3px;overflow:hidden;min-width:40px;">
+              <div style="width:${w}%;height:100%;background:${color};transition:width 0.3s;"></div>
+            </div>
+            <div style="font-family:'Press Start 2P',monospace;font-size:10px;color:var(--text);width:32px;text-align:right;flex-shrink:0;">${v}</div>
+          </div>
+        `;
+      }).join('')}
+      <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid var(--border);margin-top:4px;">
+        <span style="font-family:'Press Start 2P',monospace;font-size:9px;color:var(--muted);">BST GESAMT</span>
+        <span style="font-family:'Press Start 2P',monospace;font-size:12px;color:var(--gold);">${total}</span>
+      </div>
+    </div>
+  `;
+}
+
+// ── Pokémon-Tab Sub-Modus (Suche vs. Gegner) ──
+let piMode = 'search';
+// Gegner-Slot-Picker-State (Solo = 1 Spieler, daher kein Spieler-Key).
+let _piEnemyIdx = 0;                  // aktuell angezeigter Slot
+let _piEnemyRevealed = new Set([0]);  // bereits gesehene (klickbare) Slots
+let _piEnemyTeamKey = '';             // PID-Set des aktuellen Gegner-Trupps
+let _piEnemyActiveIdx = -1;           // zuletzt gesehener aktiver Slot
+let _lastEnemyKey = null;             // Reload-Guard (idx|species|ability|moves)
+
+function setPiEnemyIdx(idx) {
+  _piEnemyRevealed.add(idx);
+  _piEnemyIdx = idx;
+  _lastEnemyKey = null;
+  refreshPiEnemy();
+}
+
+function showPiMode(mode) {
+  piMode = mode;
+  document.getElementById('pi-mode-search').classList.toggle('active', mode === 'search');
+  document.getElementById('pi-mode-enemy').classList.toggle('active', mode === 'enemy');
+  document.getElementById('pi-search-panel').style.display = mode === 'search' ? '' : 'none';
+  // Im Suche-Modus: Standard-Layout (Level-Slider + Learnset) wieder einblenden
+  if (mode === 'search') {
+    document.getElementById('pi-enemy-panel').style.display = 'none';
+    document.getElementById('pi-enemy-slots').style.display = 'none';
+    document.getElementById('pi-actual-moves-box').style.display = 'none';
+    document.getElementById('pi-attacks-title').style.display = '';
+    document.getElementById('pi-level-controls').style.display = '';
+    document.getElementById('pi-moves').style.display = '';
+    _lastEnemyKey = null;
+  } else {
+    refreshPiEnemy();
+  }
+}
+
+async function refreshPiEnemy() {
+  if (piMode !== 'enemy') return;
+  const at = data && data.autoTeam;
+  // enemyTeam[] = alle Gegner-Slots (Trainer); Fallback = nur das aktive Mon.
+  const enemyTeam = (at && Array.isArray(at.enemyTeam) && at.enemyTeam.length)
+    ? at.enemyTeam : (at && at.enemy ? [at.enemy] : []);
+  if (_piEnemyIdx >= enemyTeam.length) _piEnemyIdx = 0;
+
+  const enPanel  = document.getElementById('pi-enemy-panel');
+  const piOut    = document.getElementById('pi-output');
+  const piSprite = document.getElementById('pi-sprite');
+  const movesBox = document.getElementById('pi-actual-moves-box');
+  const slotsEl  = document.getElementById('pi-enemy-slots');
+
+  // Neuer Gegner-Trupp (anderes PID-Set)? -> aufgedeckte Slots zurücksetzen.
+  const teamKey = enemyTeam.map(m => m && m.pid).join(',');
+  if (_piEnemyTeamKey !== teamKey) {
+    _piEnemyRevealed = new Set([0]);
+    _piEnemyTeamKey  = teamKey;
+    _piEnemyIdx      = 0;
+    _piEnemyActiveIdx = -1;
+  }
+
+  // Anzeige folgt dem AKTIVEN Battler: der Tracker liefert at.enemy = das
+  // gerade vorne stehende Mon. Passenden Slot per PID finden und ihm folgen,
+  // sobald er wechselt (Faint/Wechsel). Manuelle Auswahl bleibt dazwischen.
+  let activeIdx = -1;
+  if (at && at.enemy && at.enemy.pid != null) {
+    activeIdx = enemyTeam.findIndex(m => m && m.pid === at.enemy.pid);
+  }
+  if (activeIdx >= 0 && activeIdx !== _piEnemyActiveIdx) {
+    _piEnemyActiveIdx = activeIdx;
+    _piEnemyIdx = activeIdx;
+    _piEnemyRevealed.add(activeIdx);
+  }
+
+  const en = enemyTeam[_piEnemyIdx];
+
+  // Slot-Picker rendern (nur bei mehreren Gegnern); ungesehene Slots gesperrt.
+  if (slotsEl) {
+    if (enemyTeam.length > 1) {
+      slotsEl.style.display = 'flex';
+      slotsEl.innerHTML = enemyTeam.map((m, i) => {
+        const active = i === _piEnemyIdx;
+        const revealed = _piEnemyRevealed.has(i);
+        const gname = revealed ? ((GN && GN[m.species]) || ('#' + m.species)) : '???';
+        const title = revealed ? `${gname} (Lv${m.level ?? '?'})` : 'Noch nicht im Kampf gesehen';
+        const icon = revealed
+          ? `<img src="${spriteUrl(m.species)}" style="width:20px;height:20px;image-rendering:pixelated;">`
+          : `<span style="display:inline-flex;width:20px;height:20px;align-items:center;justify-content:center;background:var(--surface2);border:1px solid var(--border);border-radius:3px;font-weight:700;font-size:13px;color:var(--muted);">?</span>`;
+        const clickAttr = revealed ? `onclick="setPiEnemyIdx(${i})"` : '';
+        return `<button ${clickAttr} ${revealed ? '' : 'disabled'} title="${title}" style="background:${active ? 'var(--accent)' : 'var(--surface)'};border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};color:${active ? 'var(--bg)' : 'var(--text)'};padding:4px 8px;border-radius:4px;cursor:${revealed ? 'pointer' : 'default'};opacity:${revealed ? 1 : 0.6};font-family:'Exo 2',sans-serif;font-size:11px;font-weight:${active ? 700 : 500};display:flex;align-items:center;gap:4px;">${icon}${i + 1}</button>`;
+      }).join('');
+    } else {
+      slotsEl.style.display = 'none';
+      slotsEl.innerHTML = '';
+    }
+  }
+
+  if (!en || !en.species) {
+    enPanel.style.display = 'block';
+    piOut.style.display = 'none';
+    piSprite.style.display = 'none';
+    movesBox.style.display = 'none';
+    _lastEnemyKey = null;
+    return;
+  }
+  enPanel.style.display = 'none';
+
+  // Level-Slider + Learnset ausblenden — nur AKTUELLES MOVESET zeigen
+  document.getElementById('pi-attacks-title').style.display = 'none';
+  document.getElementById('pi-level-controls').style.display = 'none';
+  document.getElementById('pi-moves').style.display = 'none';
+  movesBox.style.display = 'block';
+
+  // Gleicher Gegner/Slot -> kein Reload (verhindert Flackern + Scroll-Sprung).
+  const key = `${_piEnemyIdx}|${en.species}|${en.ability || 0}|${(en.moves || []).join(',')}`;
+  if (_lastEnemyKey === key) return;
+  _lastEnemyKey = key;
+
+  // Scrollposition merken: Auto-Folgen darf nicht nach oben reißen.
+  const _scrollY = window.scrollY;
+  const name = (typeof GN !== 'undefined' && GN[en.species]) || ('#' + en.species);
+  await selectPI(en.species, name, true);
+
+  // Fähigkeit: nur die EINE überschreiben, die das Pokémon gerade hat
+  if (en.ability && en.ability > 0) {
+    const abName = await fetchDeName('ability', en.ability);
+    const abEl = document.getElementById('pi-abilities');
+    if (abEl) {
+      abEl.innerHTML = `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:8px 12px;font-size:13px;color:var(--accent);font-weight:600;">${abName}</div>`;
+    }
+  }
+
+  // Aktuelle Attacken rendern
+  const moves = (en.moves || []).filter(id => id > 0);
+  const list = document.getElementById('pi-actual-moves-list');
+  if (moves.length === 0) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:13px;">Keine Attacken bekannt.</div>';
+  } else {
+    list.innerHTML = moves.map((id, i) =>
+      `<div id="actual-move-${i}" style="background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:8px 12px;font-size:13px;">Lade...</div>`
+    ).join('');
+    moves.forEach(async (id, i) => {
+      const nm = await fetchDeName('move', id);
+      const el = document.getElementById('actual-move-' + i);
+      if (el) el.textContent = nm;
+    });
+  }
+  // Höhe könnte sich leicht geändert haben -> zurück zur gemerkten Position.
+  window.scrollTo(0, _scrollY);
+}
+
+function showAutoDetail(source, idx) {
+  // Backwards-compat: alter Aufruf showAutoDetail(slotIdx)
+  if (typeof source === 'number') { idx = source; source = 'team'; }
+  const at = data.autoTeam;
+  if (!at) return;
+  let m, label;
+  if (source === 'team') {
+    m = (at.team || [])[idx];
+    label = 'Team Slot ' + (idx + 1);
+  } else if (source === 'box') {
+    m = (at.box || [])[idx];
+    label = m ? `PC-Box ${m.box} · Slot ${m.slot}` : 'PC-Box';
+  }
+  if (!m) return;
+  document.getElementById('auto-detail-slot').textContent = label;
+  document.getElementById('auto-detail-modal').style.display = 'flex';
+  renderAutoDetail(m);
+}
+
+function hideAutoDetail() {
+  document.getElementById('auto-detail-modal').style.display = 'none';
+}
+
+async function renderAutoDetail(m) {
+  const body = document.getElementById('auto-detail-body');
+  const germanName = (typeof GN !== 'undefined' && GN[m.species]) || ('#' + m.species);
+  const cur = m.curHP, max = m.maxHP;
+  const hasHP = (typeof cur === 'number' && typeof max === 'number' && max > 0);
+  const isDead = hasHP && cur === 0;
+  const ratio = hasHP ? cur / max : 1;
+  const hpColor = isDead ? 'var(--dead)'
+    : ratio > 0.5 ? 'var(--accent3)'
+    : ratio > 0.2 ? 'var(--gold)' : 'var(--dead)';
+
+  // Erster Render mit dem was wir sofort haben
+  body.innerHTML = `
+    <div style="display:flex;gap:16px;align-items:center;margin-bottom:16px;">
+      <img src="${spriteUrl(m.species)}" style="width:96px;height:96px;image-rendering:pixelated;flex-shrink:0;${isDead ? 'filter:grayscale(1);opacity:0.6;' : ''}">
+      <div style="min-width:0;flex:1;">
+        <div style="font-weight:700;font-size:18px;">${m.nick || germanName}</div>
+        <div style="font-size:13px;color:var(--muted);">${germanName} · #${String(m.species).padStart(3,'0')}</div>
+        <div style="font-family:'Press Start 2P',monospace;font-size:12px;color:var(--gold);margin-top:6px;">Lv ${m.level}</div>
+        ${hasHP ? `
+          <div style="margin-top:8px;width:100%;max-width:200px;">
+            <div style="font-size:12px;color:${hpColor};font-weight:600;">${cur}/${max} KP${isDead ? ' 💀' : ''}</div>
+            <div style="width:100%;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-top:3px;">
+              <div style="width:${ratio*100}%;height:100%;background:${hpColor};"></div>
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:13px;">
+      <div style="color:var(--muted);">Fähigkeit</div>      <div id="ad-ability">Lade...</div>
+      <div style="color:var(--muted);">Item</div>           <div id="ad-item">${gen5ItemName(m.item)}</div>
+    </div>
+    <!-- BST -->
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:12px;margin-top:14px;">
+      <div style="font-family:'Press Start 2P',monospace;font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:10px;">BASE STATS</div>
+      <div id="ad-bst" style="font-size:13px;color:var(--muted);">Lade...</div>
+    </div>
+    <!-- Attacken -->
+    <div style="margin-top:16px;">
+      <div style="font-family:'Press Start 2P',monospace;font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:8px;">ATTACKEN</div>
+      <div id="ad-moves" style="display:flex;flex-direction:column;gap:6px;">
+        ${(m.moves || []).map((_,i) => `<div id="ad-move-${i}" style="background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:7px 11px;font-size:13px;">Lade...</div>`).join('')}
+      </div>
+    </div>
+  `;
+
+  // Async DE-Namen + Base Stats nachladen
+  const [ability, item, stats, ...moves] = await Promise.all([
+    fetchDeName('ability', m.ability),
+    fetchDeName('item', m.item),
+    fetchPokemonStats(m.species),
+    ...(m.moves || []).map(mv => mv > 0 ? fetchDeName('move', mv) : Promise.resolve('–')),
+  ]);
+  const abEl = document.getElementById('ad-ability'); if (abEl) abEl.textContent = ability;
+  const itemEl = document.getElementById('ad-item'); if (itemEl) itemEl.textContent = item;
+  const bstEl = document.getElementById('ad-bst');
+  if (bstEl) bstEl.innerHTML = stats ? renderBSTBars(stats) : '<div style="color:var(--muted);">Konnte BST nicht laden.</div>';
+  moves.forEach((name, i) => {
+    const el = document.getElementById('ad-move-' + i);
+    if (el) {
+      el.textContent = name;
+      if (name === '–') el.style.color = 'var(--muted)';
+    }
+  });
+}
+
+// ── Map-Zuordnungen verwalten ──
+function showMapMappings() {
+  document.getElementById('mapmap-modal').style.display = 'flex';
+  renderMapMappingsList();
+}
+function hideMapMappings() {
+  document.getElementById('mapmap-modal').style.display = 'none';
+}
+function renderMapMappingsList() {
+  const list = document.getElementById('mapmap-list');
+  if (!list) return;
+  const m = getMapMappings();
+  const entries = Object.entries(m);
+  if (entries.length === 0) {
+    list.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;font-size:13px;">Noch keine Zuordnungen vorhanden.</div>';
+    return;
+  }
+  // Sortieren: aktuelle Map oben, dann nach Routenname
+  const currentKey = autoMapKey(data.autoTeam || {});
+  entries.sort((a, b) => {
+    if (a[0] === currentKey) return -1;
+    if (b[0] === currentKey) return 1;
+    return (a[1] || '').localeCompare(b[1] || '');
+  });
+  list.innerHTML = entries.map(([key, route]) => {
+    const isCurrent = key === currentKey;
+    const isIgnored = route === '__ignore__';
+    const label = isIgnored ? '(ignoriert)' : route;
+    const labelColor = isIgnored ? 'var(--muted)' : isCurrent ? 'var(--accent)' : 'var(--text)';
+    return `
+      <div style="display:flex;justify-content:space-between;align-items:center;background:var(--surface2);border:1px solid ${isCurrent ? 'var(--accent)' : 'var(--border)'};border-radius:6px;padding:10px 12px;">
+        <div style="min-width:0;flex:1;margin-right:10px;">
+          <div style="font-family:'Press Start 2P',monospace;font-size:8px;color:var(--muted);letter-spacing:1px;margin-bottom:3px;">${isCurrent ? '★ AKTUELL · ' : ''}${key}</div>
+          <div style="font-size:13px;color:${labelColor};${isIgnored ? 'font-style:italic;' : 'font-weight:600;'}">${label}</div>
+        </div>
+        <button onclick="deleteMappingFromModal('${key}')" style="background:none;border:1px solid var(--dead);color:var(--dead);padding:4px 12px;border-radius:4px;font-size:11px;cursor:pointer;flex-shrink:0;">Löschen</button>
+      </div>
+    `;
+  }).join('');
+}
+function deleteMapping(key) {
+  if (!key) return;
+  // Aus globalem Repo löschen
+  db.ref(NS + '/_global/mapIdToRoute/' + key).remove().catch(()=>{});
+  if (_globalData.mapIdToRoute) delete _globalData.mapIdToRoute[key];
+  // Auch aus dem alten per-run Speicher räumen (Legacy)
+  if (data.mapIdToRoute && data.mapIdToRoute[key] !== undefined) {
+    delete data.mapIdToRoute[key];
+    save();
+  }
+  render();
+}
+function deleteMappingFromModal(key) {
+  deleteMapping(key);
+  renderMapMappingsList();
+}
+
+// Map-ID einer Route zuordnen (vom Banner-Button) — global gespeichert
+function assignMap() {
+  const key = autoMapKey(data.autoTeam);
+  const route = document.getElementById('auto-route-select').value;
+  if (!key || !route) return;
+  // Schreibt direkt ins globale Repo (alle Runs sehen es)
+  db.ref(NS + '/_global/mapIdToRoute/' + key).set(route).catch(()=>{});
+  if (!_globalData.mapIdToRoute) _globalData.mapIdToRoute = {};
+  _globalData.mapIdToRoute[key] = route;
+  render();
+}
+
+// ── Wild vs Trainer-Kampf-Erkennung ──
+// Mehrere Gegner = Trainer.
+// Einzelner Gegner + OT-Trainer-ID ≠ Spieler-TID = Trainer (1-Pokémon-NPC).
+function isTrainerBattle(at) {
+  if (!at) return false;
+  const enemyCount = (at.enemyTeam || []).length;
+  if (enemyCount === 0) return false;
+  if (enemyCount >= 2) return true;
+  const enemy = at.enemy;
+  if (!enemy) return false;
+  const playerTid = ((at.team || [])[0] || {}).otTid;
+  if (enemy.otTid && playerTid !== undefined && playerTid !== null && enemy.otTid !== playerTid) {
+    return true;
+  }
+  return false;
+}
+
+// ── Routes mit Tutorial-Encountern, die übersprungen werden sollen ──
+// (Anzahl = wie viele Pokémon am Anfang ignoriert werden)
+const ROUTE_TUTORIAL_SKIP = {
+  'Route 19': 1,   // Cheren-Tutorial mit Felilou
+};
+
+// ── Starter automatisch eintragen ──
+// Sobald ein Pokémon auf Slot 1 ist und die "Starter"-Route leer ist,
+// füllen wir den Encounter mit dem ersten Team-Pokémon (gefangen).
+function fillStarter() {
+  const at = data.autoTeam;
+  if (!at || !Array.isArray(at.team) || at.team.length === 0) return;
+  const starter = at.team[0];
+  if (!starter || !starter.species) return;
+  const starterRoute = (data.routes || []).find(r => r.method === 'Starter');
+  if (!starterRoute) return;
+  const enc = (data.encounters || []).find(e => e.route === starterRoute.name);
+  if (!enc || enc.id) return;
+  enc.id = starter.species;
+  enc.name = (typeof GN !== 'undefined' && GN[starter.species]) || ('#' + starter.species);
+  enc.status = 'caught';
+  console.log('[AutoTracker] 🎁 Starter:', enc.route, '→', enc.name);
+  save();
+}
+
+// ── Persistente Tod-Markierung ──
+// Sobald ein Team-Pokémon mit curHP=0 erkannt wird, schreiben wir
+// seine PID in data.deadPids. Auch nach Wiederbelebung bleibt das
+// Pokémon im Tracker als tot markiert (Nuzlocke-Regel).
+function trackDeaths() {
+  const at = data.autoTeam;
+  if (!at || !Array.isArray(at.team)) return;
+  if (!data.deadPids) data.deadPids = {};
+  let changed = false;
+  for (const m of at.team) {
+    if (m.curHP === 0 && m.pid && !data.deadPids[String(m.pid)]) {
+      data.deadPids[String(m.pid)] = {
+        species: m.species,
+        nick:    m.nick || null,
+        level:   m.level,
+        diedAt:  Date.now(),
+      };
+      changed = true;
+      console.log('[AutoTracker] 💀 Tot:', m.nick || ('#' + m.species), '(PID', m.pid + ')');
+    }
+  }
+  if (changed) save();
+}
+
+// Manuell wiederbeleben (Knopf auf Tot-Karte)
+function revivePokemon(pid) {
+  if (!data.deadPids) return;
+  const key = String(pid);
+  if (!data.deadPids[key]) return;
+  if (!confirm('Pokémon wirklich wiederbeleben? (Tot-Markierung entfernen)')) return;
+  delete data.deadPids[key];
+  save();
+  render();
+}
+
+// ── Fang-Erkennung ──
+// Während eines Wild-Kampfs merken wir uns die PID des Gegners.
+// Sobald der Kampf vorbei ist und die PID im Team oder PC-Box auftaucht,
+// markieren wir den Encounter als "caught".
+let _lastWildEnemy = null;
+function watchCatch() {
+  const at = data.autoTeam;
+  if (!at) return;
+  const en = at.enemy;
+  // Während Wild-Kampf: PID merken (für Encounter, bei dem enc.pid evtl. noch fehlt)
+  if (en && !isTrainerBattle(at) && en.pid) {
+    const key = autoMapKey(at);
+    const route = key ? getMapMappings()[key] : null;
+    if (route && route !== '__ignore__') {
+      _lastWildEnemy = { pid: en.pid, species: en.species, route };
+    }
+  } else if (_lastWildEnemy && !en) {
+    _lastWildEnemy = null;
+  }
+
+  // Robuster Scan: alle uncaught Encounter mit gespeicherter PID prüfen,
+  // ob diese PID im aktuellen Team oder PC-Box auftaucht.
+  // Überlebt Page-Reloads und verpasste Battle-End-Ticks.
+  const team = at.team || [];
+  const box  = at.box  || [];
+  const pidInParty = (pid) => team.some(p => p.pid === pid) || box.some(p => p.pid === pid);
+  let changed = false;
+  for (const enc of (data.encounters || [])) {
+    if (enc.status === 'caught') continue;
+    if (!enc.pid) continue;
+    if (pidInParty(enc.pid)) {
+      enc.status = 'caught';
+      if (!enc.id && _lastWildEnemy && _lastWildEnemy.pid === enc.pid) {
+        enc.id   = _lastWildEnemy.species;
+        enc.name = (typeof GN !== 'undefined' && GN[_lastWildEnemy.species]) || ('#' + _lastWildEnemy.species);
+      }
+      console.log('[AutoTracker] 🎯 Gefangen:', enc.route, '→', enc.name);
+      changed = true;
+    }
+  }
+  if (changed) save();
+}
+
+// ── Auto-Häkchen Gym-Orden ──
+// Liest das Badge-Bitfeld aus state.badges (u8: bit N = Orden N+1).
+function autoTickBadges() {
+  const at = data.autoTeam;
+  if (!at || typeof at.badges !== 'number') return;
+  if (!data.gymState) data.gymState = {};
+  let changed = false;
+  for (let i = 0; i < 8; i++) {
+    if (at.badges & (1 << i)) {
+      if (!data.gymState[i + 1]) {
+        data.gymState[i + 1] = true;
+        changed = true;
+        console.log('[AutoTracker] 🏅 Orden', i + 1, 'erkannt');
+      }
+    }
+  }
+  if (changed) save();
+}
+
+// Evo-Familie als Set<number> aller Species-IDs in derselben Evolutions-Linie.
+// Synchron prüfbar via _evoFamilySync; bei Cache-Miss wird async geladen und der
+// nächste Tick kann den Check durchführen.
+const _evoFamilySync = {};        // speciesId -> Set<number> (erst nach fetch)
+const _evoFamilyPending = {};     // speciesId -> Promise<Set<number>>
+function prefetchEvoFamily(speciesId) {
+  const sid = Number(speciesId);
+  if (_evoFamilySync[sid] || _evoFamilyPending[sid]) return _evoFamilyPending[sid] || Promise.resolve(_evoFamilySync[sid]);
+  _evoFamilyPending[sid] = (async () => {
+    try {
+      const s = await fetch(`https://pokeapi.co/api/v2/pokemon-species/${sid}`);
+      const sd = await s.json();
+      const c = await fetch(sd.evolution_chain.url);
+      const cd = await c.json();
+      const names = [];
+      (function walk(n){ names.push(n.species.name); n.evolves_to.forEach(walk); })(cd.chain);
+      const ids = await Promise.all(names.map(async n => {
+        try { const r = await fetch(`https://pokeapi.co/api/v2/pokemon-species/${n}`); return (await r.json()).id; }
+        catch { return null; }
+      }));
+      const set = new Set(ids.filter(x => x != null).map(Number));
+      set.add(sid);
+      for (const id of set) _evoFamilySync[id] = set;
+      return set;
+    } catch {
+      const set = new Set([sid]);
+      _evoFamilySync[sid] = set;
+      return set;
+    } finally {
+      delete _evoFamilyPending[sid];
+    }
+  })();
+  return _evoFamilyPending[sid];
+}
+
+// Automatisch Encounter eintragen, wenn ein WILD-Gegner auf einer
+// bekannten Route auftaucht und der Encounter-Slot leer ist
+// Stale-Enemy-Tracking: BW2 leert den ENEMY_BASE-RAM nach einem Kampf NICHT.
+// Ohne Schutz wird die letzte Wild-PID auf jeder folgenden Route als
+// neuer Encounter eingetragen.
+let _lastEnemySeenSolo = null;  // { pid, mapKey }
+
+function autoFillEncounter() {
+  const at = data.autoTeam;
+  if (!at || !at.enemy || !at.enemy.species) return;
+  if (isTrainerBattle(at)) return;             // Trainer-Kämpfe ignorieren
+  const key = autoMapKey(at);
+  if (!key) return;
+  const route = getMapMappings()[key];
+  if (!route || route === '__ignore__') return;
+  const pid = at.enemy.pid;
+  if (!pid) return;
+
+  // STALE-ENEMY-SCHUTZ: Gleiche PID, andere Map → ENEMY_BASE-Echo.
+  // (Früherer Check "PID in Team/Box" war zu aggressiv: blockte auch
+  //  Fälle wo Wild gerade gefangen wurde aber Map noch nicht zugeordnet war.)
+  if (_lastEnemySeenSolo && _lastEnemySeenSolo.pid === pid && _lastEnemySeenSolo.mapKey !== key) return;
+  _lastEnemySeenSolo = { pid, mapKey: key };
+  // Tutorial-Encounter überspringen (z.B. Cheren-Felilou auf Route 19)
+  const skipCount = ROUTE_TUTORIAL_SKIP[route] || 0;
+  if (skipCount > 0) {
+    if (!data.tutorialSkippedPids) data.tutorialSkippedPids = {};
+    if (!data.tutorialSkippedPids[route]) data.tutorialSkippedPids[route] = [];
+    const skipped = data.tutorialSkippedPids[route];
+    if (skipped.includes(pid)) return;          // dieser Kampf schon als Skip verbucht
+    if (skipped.length < skipCount) {
+      skipped.push(pid);
+      console.log('[AutoTracker] ⏭ Tutorial übersprungen:', route, '(PID', pid + ')');
+      save();
+      return;
+    }
+  }
+  if (!data.encounters) return;
+  const enc = data.encounters.find(e => e.route === route);
+  if (!enc || enc.id) return;     // existiert nicht oder schon gefüllt
+  const speciesId = Number(at.enemy.species);
+  // Dupes-Clause (Familien-weit): Species darf nicht in derselben Evo-Linie wie
+  // ein bereits eingetragener Encounter sein. Wir brauchen die Familien aller
+  // existierenden Encounter UND die der neuen Species im sync-Cache.
+  const existingIds = (data.encounters || [])
+    .filter(e => e.id && e.route !== route)
+    .map(e => Number(e.id));
+  const allNeeded = [speciesId, ...existingIds];
+  const missing = allNeeded.filter(id => !_evoFamilySync[id]);
+  if (missing.length) {
+    missing.forEach(prefetchEvoFamily);
+    // Beim nächsten Tick ist's gecached; jetzt nicht eintragen, um Dupe-Risiko zu vermeiden
+    return;
+  }
+  const newFamily = _evoFamilySync[speciesId];
+  const dupe = existingIds.some(id => newFamily.has(id) || _evoFamilySync[id].has(speciesId));
+  if (dupe) {
+    console.log('[AutoTracker] ⏭ Dupe (Evo-Familie) übersprungen:', route, '→ Species #' + speciesId);
+    return;
+  }
+  enc.id = speciesId;
+  enc.name = (typeof GN !== 'undefined' && GN[speciesId])
+    || at.enemy.nick || ('#' + speciesId);
+  enc.pid = pid;                  // PID merken für robuste Fang-Erkennung
+  if (!enc.status) enc.status = 'uncaught';
+  console.log('[AutoTracker] Encounter auto-eingetragen:', route, '→', enc.name);
+  save();
 }
 
 // ══ TEAM & BOX ══
@@ -917,12 +1840,16 @@ async function switchForm(formName){
   await loadFormData(form.id);
 }
 
-async function selectPI(id,name){
+async function selectPI(id,name,preserveView){
   document.getElementById('pi-list').classList.remove('open');
   document.getElementById('pi-search').value=name;
-  document.getElementById('pi-output').style.display='none';
-  document.getElementById('pi-loading').style.display='block';
-  document.getElementById('pi-loading').textContent='Lade Daten...';
+  // preserveView: beim Auto-Folgen (Gegner wechselt) NICHT einklappen, sonst
+  // springt die Seite nach oben. Alte Inhalte bleiben bis neue geladen sind.
+  if(!preserveView){
+    document.getElementById('pi-output').style.display='none';
+    document.getElementById('pi-loading').style.display='block';
+    document.getElementById('pi-loading').textContent='Lade Daten...';
+  }
   piMoves=[];piForms=[];
   document.getElementById('pi-sprite').src=spriteUrl(id);
   document.getElementById('pi-sprite').style.display='block';
