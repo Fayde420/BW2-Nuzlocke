@@ -863,13 +863,79 @@ function autoMapKey(at) {
 }
 
 // ── Gen-5-Item-ID → DE-Name ──
-// Spielinterne Item-IDs aus BW2 (NICHT PokéAPI-Schema).
-// Lückenhaft — wird erweitert wenn neue auftauchen.
-// Item-Namen werden vollständig über PokéAPI geholt (fetchDeName('item', id)).
-// Sofortige Anzeige aus Cache, sonst Async-Fetch + DOM-Update.
-// PokéAPI-Item-IDs decken Gen 5 (1–639) vollständig ab.
+// WICHTIG: Spielinterne BW2-Item-IDs sind NICHT die PokéAPI-Item-IDs! Deshalb
+// zuerst diese Tabelle (BW2-intern), PokéAPI nur als Fallback. Sonst wird z.B.
+// Toxik-Orb (BW2-ID 272) über PokéAPI zu Item 272 = Eject Button/Wechselhülle.
+const GEN5_ITEMS = {
+  // Pokébälle 1–16
+  1:'Meisterball', 2:'Hyperball', 3:'Superball', 4:'Pokéball', 5:'Safariball',
+  6:'Netzball', 7:'Tauchball', 8:'Nestball', 9:'Wiederball', 10:'Timerball',
+  11:'Luxusball', 12:'Premierball', 13:'Finsterball', 14:'Heilball', 15:'Flottball',
+  16:'Jubelball',
+  // Heilung 17–63
+  17:'Trank', 18:'Gegengift', 19:'Feuerheiler', 20:'Eisheiler', 21:'Aufwecker',
+  22:'Para-Heiler', 23:'Top-Genesung', 24:'Top-Trank', 25:'Hypertrank',
+  26:'Supertrank', 27:'Vollheiler', 28:'Beleber', 29:'Top-Beleber',
+  30:'Frischwasser', 31:'Sprudel', 32:'Limonade', 33:'Kuhmuh-Milch',
+  34:'EP-Plus', 35:'KP-Plus', 36:'Protein', 37:'Eisen', 38:'Carbon', 39:'Kalzium',
+  40:'Lavendelkraut', 41:'Esoteralia', 42:'Energiestaub', 43:'Energiewurzel',
+  44:'Heilpuder', 45:'Vitalkraut', 46:'Äther', 47:'Top-Äther', 48:'Elixier', 49:'Top-Elixier',
+  50:'Sonderbonbon', 51:'PP-Plus', 52:'PP-Top',
+  53:'Tafelbeere', 54:'Eisheiler-Beere', 55:'Hibischsoda', 56:'Schmackpilz',
+  // Fluchtitems / Repel
+  72:'Schutz', 73:'Top-Schutz', 74:'Hyper-Schutz',
+  // Evolutions-Steine
+  80:'Feuerstein', 81:'Wasserstein', 82:'Donnerstein', 83:'Blattstein',
+  84:'Mondstein', 85:'Sonnenstein', 86:'Funkelstein', 87:'Leuchtstein',
+  108:'Dunkelstein',
+  // Beeren 149–212 (Auswahl, häufigste)
+  149:'Amrenabeere', 150:'Maranjabeere', 151:'Tsitrubeere', 152:'Pirsifbeere',
+  153:'Fragiabeere', 154:'Wunfrubeere', 155:'Tamotbeere', 156:'Sinelbeere',
+  157:'Pyapabeere', 158:'Yapabeere', 159:'Magobeere', 160:'Goldbeere',
+  161:'Mohnbeere', 162:'Wepabeere', 163:'Honmelbeere', 164:'Lakribeere',
+  165:'Sananabeere', 166:'Granabeere', 167:'Setangbeere', 168:'Quab-Beere',
+  169:'Himmihbeere', 170:'Morbbeere', 171:'Nanabbeere', 172:'Nirbebeere',
+  173:'Sambeere', 174:'Persimbeere', 175:'Prunusbeere', 176:'Ohrdaubeere',
+  177:'Kerubisbeere', 178:'Hopobeere', 179:'Wassinbeere', 180:'Burleobeere',
+  181:'Babiribeere', 182:'Schukbeere', 183:'Kobabeere',
+  185:'Tahaybeere', 186:'Mahabeere', 187:'Pamtrebeere',
+  // Held-Items / Battle-Items
+  201:'Erdmantel', 202:'Eisenkugel', 203:'Roter Schal', 204:'Blauer Schal',
+  205:'Rosa Schal', 206:'Grüner Schal', 207:'Gelber Schal',
+  208:'Heilkraut', 209:'Glücksrucksack', 210:'Stahlmantel',
+  211:'Roter Faden', 212:'Sturzhelm',
+  214:'Glücksamulett',
+  217:'Schnellklaue', 218:'Heilstaub', 219:'Lakritze',
+  220:'Wahlband', 221:'Königsstein', 222:'Silberstaub',
+  223:'Münzamulett', 224:'Reinigungsmaske', 225:'Mentalkraut',
+  227:'Magnet', 228:'Erinnerungsband',
+  229:'Notfallbeere', 230:'Drosselzapfen',
+  231:'Glücks-Ei', 232:'Scope-Linse', 233:'Metallmantel',
+  234:'Überreste', 235:'Drachenhaut', 236:'Kugelblitz',
+  237:'Machoband', 238:'EP-Teiler', 239:'Drachenklaue',
+  241:'Wunderkugel', 242:'Spelon-Beere',
+  244:'Spurensand', 246:'Schwarzgurt', 247:'Magnetband',
+  248:'Schwarze Brille', 249:'Banditenmuts',
+  250:'Wundersaat',
+  257:'Metallstaub', 258:'Gewichtsgurt', 259:'Bandagen',
+  260:'Linsenband',
+  263:'Wahrsagezahn',
+  266:'Aktivator', 267:'Glückspunsch', 268:'Glücksflocke',
+  270:'Leben-Orb', 271:'Energieband', 272:'Toxik-Orb', 273:'Heiß-Orb',
+  274:'Bremsdorn', 275:'Fokusgurt', 276:'Zoom-Linse', 277:'Aktivator',
+  278:'Rauch-Ball',
+  281:'Schwarze Schlacke', 282:'Eisbrocken',
+  286:'Notfallschutz',
+  287:'Wahlschal', 289:'Wassergeschoss',
+  293:'Schädelhelm', 294:'Iro-Schub', 297:'Wahlglas',
+  // Wechsel- + Quest-Items
+  547:'Wechselhülle',
+  564:'Ovaler Stein',
+};
+
 function gen5ItemName(id) {
   if (!id || id === 0) return '—';
+  if (GEN5_ITEMS[id]) return GEN5_ITEMS[id];   // BW2-Tabelle zuerst
   const cached = _apiCache['item:' + id];
   return cached !== undefined ? cached : ('#' + id);
 }
@@ -879,6 +945,9 @@ const _apiCache = {};
 
 async function fetchDeName(kind, id) {
   if (!id || id <= 0) return '—';
+  // BW2-Item-IDs != PokéAPI-IDs -> Items NUR aus der internen Tabelle
+  // auflösen (PokéAPI-Treffer wäre fast immer falsch). Unbekannt -> #id.
+  if (kind === 'item') return GEN5_ITEMS[id] || ('#' + id);
   const key = kind + ':' + id;
   if (_apiCache[key] !== undefined) return _apiCache[key];
   try {
