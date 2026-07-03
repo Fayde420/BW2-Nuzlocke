@@ -481,8 +481,15 @@ function subscribeToRun() {
   // Aktiven Run an Firebase melden — Python-Brücke pollt diesen Wert
   db.ref(NS + '/_active_run').set(currentRunId).catch(() => {});
   currentListener = dataRefFor(currentRunId).on('value', snap => {
-    if (isSaving) return;
     const val = snap.val();
+    if (isSaving) {
+      // Wir speichern gerade manuelle Felder — die dürfen nicht zurückspringen.
+      // ABER autoTeam gehört der Lua-Bridge (schreiben wir NIE selbst): immer
+      // aktuell halten, sonst friert der Gegner ein, solange ein save() läuft.
+      // Der 1s-Interval-Render zeigt die frischen Daten dann an.
+      if (val && data && typeof data === 'object') data.autoTeam = val.autoTeam || null;
+      return;
+    }
     if (val) {
       data = val;
       if (!data.pokemon) data.pokemon = [];
@@ -1400,6 +1407,24 @@ const ROUTE_TUTORIAL_SKIP = {
   'Route 19': 1,   // Cheren-Tutorial mit Felilou
 };
 
+// ── Partielles Firebase-Update aus dem Hot-Path (KEIN save()) ──
+// WICHTIG (wie Trio): Die Auto-Funktionen laufen bei jedem Render + jede
+// Sekunde. Würden sie save() aufrufen, setzt das isSaving=true und blockiert
+// den Firebase-Listener — dann kommen die Live-Gegner-Daten der Bridge während
+// des Kampfes NICHT mehr in `data` an ("Gegner nicht erkannt", Encounter wird
+// nicht eingetragen). Partielle .update()-Schreibvorgänge setzen isSaving NICHT
+// und lassen den Listener frei laufen.
+function autoUpdate(upd) {
+  dataRefFor(currentRunId).update(upd).catch(()=>{});
+}
+// Encounter-Felder partiell schreiben; route immer mit (syncEncountersToRoutes-Guard).
+function autoUpdateEnc(encIdx, fields) {
+  const enc = data.encounters[encIdx];
+  const upd = { [`encounters/${encIdx}/route`]: enc.route };
+  for (const k in fields) upd[`encounters/${encIdx}/${k}`] = fields[k];
+  autoUpdate(upd);
+}
+
 // ── Starter automatisch eintragen ──
 // Sobald ein Pokémon auf Slot 1 ist und die "Starter"-Route leer ist,
 // füllen wir den Encounter mit dem ersten Team-Pokémon (gefangen).
@@ -1410,13 +1435,15 @@ function fillStarter() {
   if (!starter || !starter.species) return;
   const starterRoute = (data.routes || []).find(r => r.method === 'Starter');
   if (!starterRoute) return;
-  const enc = (data.encounters || []).find(e => e.route === starterRoute.name);
-  if (!enc || enc.id) return;
+  const encIdx = (data.encounters || []).findIndex(e => e.route === starterRoute.name);
+  if (encIdx === -1) return;
+  const enc = data.encounters[encIdx];
+  if (enc.id) return;
   enc.id = starter.species;
   enc.name = (typeof GN !== 'undefined' && GN[starter.species]) || ('#' + starter.species);
   enc.status = 'caught';
   console.log('[AutoTracker] 🎁 Starter:', enc.route, '→', enc.name);
-  save();
+  autoUpdateEnc(encIdx, { id: enc.id, name: enc.name, status: 'caught' });
 }
 
 // ── Persistente Tod-Markierung ──
@@ -1427,6 +1454,7 @@ function trackDeaths() {
   const at = data.autoTeam;
   if (!at || !Array.isArray(at.team)) return;
   if (!data.deadPids) data.deadPids = {};
+  const upd = {};
   let changed = false;
   for (const m of at.team) {
     if (m.curHP === 0 && m.pid && !data.deadPids[String(m.pid)]) {
@@ -1436,11 +1464,12 @@ function trackDeaths() {
         level:   m.level,
         diedAt:  Date.now(),
       };
+      upd[`deadPids/${m.pid}`] = data.deadPids[String(m.pid)];
       changed = true;
       console.log('[AutoTracker] 💀 Tot:', m.nick || ('#' + m.species), '(PID', m.pid + ')');
     }
   }
-  if (changed) save();
+  if (changed) autoUpdate(upd);
 }
 
 // Manuell wiederbeleben (Knopf auf Tot-Karte)
@@ -1480,21 +1509,26 @@ function watchCatch() {
   const team = at.team || [];
   const box  = at.box  || [];
   const pidInParty = (pid) => team.some(p => p.pid === pid) || box.some(p => p.pid === pid);
+  const upd = {};
   let changed = false;
-  for (const enc of (data.encounters || [])) {
-    if (enc.status === 'caught') continue;
-    if (!enc.pid) continue;
+  (data.encounters || []).forEach((enc, i) => {
+    if (enc.status === 'caught') return;
+    if (!enc.pid) return;
     if (pidInParty(enc.pid)) {
       enc.status = 'caught';
+      upd[`encounters/${i}/route`]  = enc.route;
+      upd[`encounters/${i}/status`] = 'caught';
       if (!enc.id && _lastWildEnemy && _lastWildEnemy.pid === enc.pid) {
         enc.id   = _lastWildEnemy.species;
         enc.name = (typeof GN !== 'undefined' && GN[_lastWildEnemy.species]) || ('#' + _lastWildEnemy.species);
+        upd[`encounters/${i}/id`]   = enc.id;
+        upd[`encounters/${i}/name`] = enc.name;
       }
       console.log('[AutoTracker] 🎯 Gefangen:', enc.route, '→', enc.name);
       changed = true;
     }
-  }
-  if (changed) save();
+  });
+  if (changed) autoUpdate(upd);
 }
 
 // ── Auto-Häkchen Gym-Orden ──
@@ -1503,17 +1537,19 @@ function autoTickBadges() {
   const at = data.autoTeam;
   if (!at || typeof at.badges !== 'number') return;
   if (!data.gymState) data.gymState = {};
+  const upd = {};
   let changed = false;
   for (let i = 0; i < 8; i++) {
     if (at.badges & (1 << i)) {
       if (!data.gymState[i + 1]) {
         data.gymState[i + 1] = true;
+        upd[`gymState/${i + 1}`] = true;
         changed = true;
         console.log('[AutoTracker] 🏅 Orden', i + 1, 'erkannt');
       }
     }
   }
-  if (changed) save();
+  if (changed) autoUpdate(upd);
 }
 
 // Evo-Familie als Set<number> aller Species-IDs in derselben Evolutions-Linie.
@@ -1584,13 +1620,15 @@ function autoFillEncounter() {
     if (skipped.length < skipCount) {
       skipped.push(pid);
       console.log('[AutoTracker] ⏭ Tutorial übersprungen:', route, '(PID', pid + ')');
-      save();
+      autoUpdate({ [`tutorialSkippedPids/${route}`]: skipped });
       return;
     }
   }
   if (!data.encounters) return;
-  const enc = data.encounters.find(e => e.route === route);
-  if (!enc || enc.id) return;     // existiert nicht oder schon gefüllt
+  const encIdx = data.encounters.findIndex(e => e.route === route);
+  if (encIdx === -1) return;
+  const enc = data.encounters[encIdx];
+  if (enc.id) return;             // schon gefüllt
   const speciesId = Number(at.enemy.species);
   // Dupes-Clause (Familien-weit): Species darf nicht in derselben Evo-Linie wie
   // ein bereits eingetragener Encounter sein. Wir brauchen die Familien aller
@@ -1617,7 +1655,7 @@ function autoFillEncounter() {
   enc.pid = pid;                  // PID merken für robuste Fang-Erkennung
   if (!enc.status) enc.status = 'uncaught';
   console.log('[AutoTracker] Encounter auto-eingetragen:', route, '→', enc.name);
-  save();
+  autoUpdateEnc(encIdx, { id: enc.id, name: enc.name, pid: enc.pid, status: enc.status });
 }
 
 // ══ TEAM & BOX ══
