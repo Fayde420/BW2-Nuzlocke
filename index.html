@@ -465,8 +465,13 @@ function save() {
   isSaving = true;
   // autoTeam wird ausschließlich von der Lua-Brücke geschrieben — beim
   // Speichern unserer manuellen Daten lassen wir es bewusst aus.
+  // WICHTIG: .update() statt .set()! .set(payload) würde den kompletten
+  // Run-Knoten ersetzen und autoTeam (inkl. enemy/enemyTeam) LÖSCHEN — die
+  // Bridge schreibt es zwar 0,5 s später zurück, aber in der Zwischenzeit
+  // ist der Gegner weg (Flackern) und autoFillEncounter/watchCatch verlieren
+  // ihn. .update() merged nur unsere Felder und lässt autoTeam unangetastet.
   const { autoTeam, ...payload } = data;
-  dataRefFor(currentRunId).set(payload).finally(() => {
+  dataRefFor(currentRunId).update(payload).finally(() => {
     setTimeout(() => isSaving = false, 300);
   });
 }
