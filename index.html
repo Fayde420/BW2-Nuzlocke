@@ -1424,6 +1424,16 @@ function autoUpdateEnc(encIdx, fields) {
   for (const k in fields) upd[`encounters/${encIdx}/${k}`] = fields[k];
   autoUpdate(upd);
 }
+// Route (per Name) automatisch abhaken — sobald der Encounter der Route
+// eingetragen ist, ist die Nuzlocke-Begegnung verbraucht (egal ob gefangen).
+function autoMarkRouteDone(routeName) {
+  const rIdx = (data.routes || []).findIndex(r => r.name === routeName);
+  if (rIdx !== -1 && !data.routes[rIdx].done) {
+    data.routes[rIdx].done = true;
+    autoUpdate({ [`routes/${rIdx}/done`]: true });
+    console.log('[AutoTracker] ✅ Route abgehakt:', routeName);
+  }
+}
 
 // ── Starter automatisch eintragen ──
 // Sobald ein Pokémon auf Slot 1 ist und die "Starter"-Route leer ist,
@@ -1444,6 +1454,7 @@ function fillStarter() {
   enc.status = 'caught';
   console.log('[AutoTracker] 🎁 Starter:', enc.route, '→', enc.name);
   autoUpdateEnc(encIdx, { id: enc.id, name: enc.name, status: 'caught' });
+  autoMarkRouteDone(enc.route);
 }
 
 // ── Persistente Tod-Markierung ──
@@ -1656,6 +1667,7 @@ function autoFillEncounter() {
   if (!enc.status) enc.status = 'uncaught';
   console.log('[AutoTracker] Encounter auto-eingetragen:', route, '→', enc.name);
   autoUpdateEnc(encIdx, { id: enc.id, name: enc.name, pid: enc.pid, status: enc.status });
+  autoMarkRouteDone(route);
 }
 
 // ══ TEAM & BOX ══
