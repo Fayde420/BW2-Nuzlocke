@@ -704,12 +704,31 @@ const GYMS=[
 ];
 
 // ══ RENDER ══
+// Tippt der User gerade in ein Feld / hat ein Dropdown offen, dürfen die
+// Render-Ticks (Bridge pusht ~1×/s) das DOM nicht neu bauen — sonst gehen
+// Fokus und halb getippte Eingaben verloren (wie Trio/Duo).
+function isUserInteracting() {
+  const a = document.activeElement;
+  if (!a || a === document.body) return false;
+  const t = a.tagName;
+  return t === 'INPUT' || t === 'SELECT' || t === 'TEXTAREA';
+}
+
 function render() {
   renderEncounters();
   renderRoutes();
   renderGyms();
   renderAutoTeam();
   renderGraveyard();
+  // Auto-Logik läuft IMMER — bewusst außerhalb der isUserInteracting-Guards
+  // der Render-Funktionen (Trio-Muster), sonst pausiert die Encounter-/Tod-/
+  // Orden-Erkennung, solange der User tippt.
+  fillStarter();
+  autoFillEncounter();
+  watchCatch();
+  trackDeaths();
+  autoTickBadges();
+  if (typeof refreshPiEnemy === 'function') refreshPiEnemy();
   // Tod-Zähler im Header: alle jemals als tot markierten Pokémon (persistent)
   document.getElementById('death-num').textContent =
     Object.keys(data.deadPids || {}).length;
@@ -745,6 +764,7 @@ function renderGraveyard() {
 // ══ AUTOTRACKER (LIVE) ══
 const GERMAN_MOVE_FALLBACK = {0:'–'};
 function renderAutoTeam() {
+  if (isUserInteracting()) return;   // kein DOM-Rebuild während Eingabe (wie Trio)
   const panel = document.getElementById('autotracker-panel');
   const grid  = document.getElementById('auto-grid');
   if (!panel || !grid) return;
@@ -786,17 +806,8 @@ function renderAutoTeam() {
     banner.style.display = 'none';
   }
 
-  // Auto-Logik: Starter, Encounter, Fang, Tod, Orden
-  fillStarter();
-  autoFillEncounter();
-  watchCatch();
-  trackDeaths();
-  autoTickBadges();
-
-  // Falls Pokémon-Tab im Gegner-Modus: Gegner-Daten aktualisieren
-  if (typeof refreshPiEnemy === 'function') refreshPiEnemy();
-
-  // (Gegner-Anzeige wurde in den Pokémon-Tab → ⚔ Gegner verschoben)
+  // (Auto-Logik + refreshPiEnemy laufen jetzt in render() — bewusst außerhalb
+  //  des isUserInteracting-Guards, damit Tippen die Erkennung nicht pausiert.)
   panel.style.display = 'block';
 
   document.getElementById('auto-map').textContent = at.mapId ?? '–';
@@ -1552,9 +1563,11 @@ function autoTickBadges() {
   let changed = false;
   for (let i = 0; i < 8; i++) {
     if (at.badges & (1 << i)) {
-      if (!data.gymState[i + 1]) {
-        data.gymState[i + 1] = true;
-        upd[`gymState/${i + 1}`] = true;
+      // WICHTIG: gymState ist 0-basiert (renderGyms/toggleGym nutzen Array-
+      // Index 0-7). Ein 1-basierter Key markiert das FALSCHE Gym (Bug fdda870).
+      if (!data.gymState[i]) {
+        data.gymState[i] = true;
+        upd[`gymState/${i}`] = true;
         changed = true;
         console.log('[AutoTracker] 🏅 Orden', i + 1, 'erkannt');
       }
@@ -1751,6 +1764,7 @@ function syncEncountersToRoutes(){
   });
 }
 function renderEncounters(){
+  if(isUserInteracting())return;   // kein DOM-Rebuild während Eingabe (wie Trio)
   const body=document.getElementById('enc-body');if(!body)return;
   syncEncountersToRoutes();
   const encs=data.encounters;
@@ -1846,6 +1860,7 @@ async function jumpToEnc(pokeId,name){
 
 // ══ ROUTEN ══
 function renderRoutes(){
+  if(isUserInteracting())return;   // kein DOM-Rebuild während Eingabe (wie Trio)
   const body=document.getElementById('route-body');if(!body)return;
   body.innerHTML=(data.routes||[]).map((r,i)=>`<tr>
     <td class="route-name">${r.name}</td>
@@ -1861,9 +1876,16 @@ function renderRoutes(){
 }
 function toggleRoute(i){data.routes[i].done=!data.routes[i].done;save();render();}
 function updRoute(i,v){data.routes[i].note=v;save();}
+// Notfall-Werkzeug (Browser-Konsole, wie Trio/Duo): Routenliste auf Standard.
+function resetRoutes(){
+  if(confirm('Routenliste zurücksetzen? Notizen und Häkchen gehen verloren.')){
+    data.routes=initRoutes();save();render();
+  }
+}
 
 // ══ GYM ══
 function renderGyms(){
+  if(isUserInteracting())return;   // kein DOM-Rebuild während Eingabe (wie Trio)
   const grid=document.getElementById('gym-grid');if(!grid)return;
   const st=data.gymState||{};
   grid.innerHTML=GYMS.map((g,i)=>`<div class="gym-card">
@@ -1892,17 +1914,15 @@ async function fetchTD(t){
   if(tdc[t])return tdc[t];
   const r=await fetch(`https://pokeapi.co/api/v2/type/${t}`);const d=await r.json();
   let dr=d.damage_relations;
-  if(d.past_damage_relations?.length){const g5=d.past_damage_relations.find(p=>p.generation.name==='generation-v');if(g5)dr=mDR(dr,g5.damage_relations);}
+  // past_damage_relations ist ein VOLLSTÄNDIGER Snapshot pro Generation:
+  // Gen-5-Eintrag wholesale verwenden, NICHT mit current mergen (wie Trio —
+  // das Mergen war buggy, weil Gen-6+-Änderungen erhalten blieben).
+  if(d.past_damage_relations?.length){const g5=d.past_damage_relations.find(p=>p.generation.name==='generation-v');if(g5)dr=g5.damage_relations;}
   const res={};G5T.forEach(x=>res[x]=1);
   (dr.no_damage_to||[]).forEach(x=>{if(res[x.name]!==undefined)res[x.name]=0;});
   (dr.half_damage_to||[]).forEach(x=>{if(res[x.name]!==undefined)res[x.name]=0.5;});
   (dr.double_damage_to||[]).forEach(x=>{if(res[x.name]!==undefined)res[x.name]=2;});
   tdc[t]=res;return res;
-}
-function mDR(c,p){
-  const m={no_damage_to:[...(c.no_damage_to||[])],half_damage_to:[...(c.half_damage_to||[])],double_damage_to:[...(c.double_damage_to||[])]};
-  ['no_damage_to','half_damage_to','double_damage_to'].forEach(k=>{if(p[k])p[k].forEach(e=>{['no_damage_to','half_damage_to','double_damage_to'].forEach(j=>m[j]=m[j].filter(x=>x.name!==e.name));m[k].push(e);});});
-  return{...c,...m};
 }
 async function calcEff(types){
   const atk=await Promise.all(G5T.map(t=>fetchTD(t)));const res={};
