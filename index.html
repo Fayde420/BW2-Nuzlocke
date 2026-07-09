@@ -1396,17 +1396,17 @@ function assignMap() {
 }
 
 // ── Wild vs Trainer-Kampf-Erkennung ──
-// Mehrere Gegner = Trainer.
-// Einzelner Gegner + OT-Trainer-ID ≠ Spieler-TID = Trainer (1-Pokémon-NPC).
+// Trainer-Kampf erkennen. Primär: battleType der Lua (otTid-basiert, erkennt
+// Doppel-WILD im dunklen Gras korrekt als wild). Fallback für alte Lua-Stände:
+// Heuristik über OT-IDs aller Gegner (2+ Slots allein heißt NICHT Trainer!).
 function isTrainerBattle(at) {
   if (!at) return false;
-  const enemyCount = (at.enemyTeam || []).length;
-  if (enemyCount === 0) return false;
-  if (enemyCount >= 2) return true;
-  const enemy = at.enemy;
-  if (!enemy) return false;
+  if (at.battleType) return at.battleType === 'trainer';
+  const et = at.enemyTeam || [];
+  if (et.length === 0 && !at.enemy) return false;
   const playerTid = ((at.team || [])[0] || {}).otTid;
-  if (enemy.otTid && playerTid !== undefined && playerTid !== null && enemy.otTid !== playerTid) {
+  const mons = et.length ? et : [at.enemy];
+  if (mons.some(m => m && m.otTid && m.otTid !== playerTid)) {
     return true;
   }
   return false;
@@ -1548,6 +1548,22 @@ function watchCatch() {
       }
       console.log('[AutoTracker] 🎯 Gefangen:', enc.route, '→', enc.name);
       changed = true;
+    } else if (enc.pid2) {
+      // Doppel-WILD: stattdessen den Partner gefangen? Eintrag korrigieren.
+      const mon2 = team.find(m => m.pid === enc.pid2) || box.find(m => m.pid === enc.pid2);
+      if (mon2) {
+        enc.id = mon2.species;
+        enc.name = (typeof GN !== 'undefined' && GN[mon2.species]) || ('#' + mon2.species);
+        enc.pid = enc.pid2;
+        enc.status = 'caught';
+        upd[`encounters/${i}/route`]  = enc.route;
+        upd[`encounters/${i}/id`]     = enc.id;
+        upd[`encounters/${i}/name`]   = enc.name;
+        upd[`encounters/${i}/pid`]    = enc.pid;
+        upd[`encounters/${i}/status`] = 'caught';
+        console.log('[AutoTracker] 🎯 Partner-Mon gefangen (Doppel-Wild):', enc.route, '→', enc.name);
+        changed = true;
+      }
     }
   });
   if (changed) autoUpdate(upd);
@@ -1679,7 +1695,14 @@ function autoFillEncounter() {
   enc.pid = pid;                  // PID merken für robuste Fang-Erkennung
   if (!enc.status) enc.status = 'uncaught';
   console.log('[AutoTracker] Encounter auto-eingetragen:', route, '→', enc.name);
-  autoUpdateEnc(encIdx, { id: enc.id, name: enc.name, pid: enc.pid, status: enc.status });
+  // Doppel-WILD (dunkles Gras): auch die PID des Partner-Mons merken — fängt
+  // man stattdessen den Partner, korrigiert watchCatch den Eintrag über pid2.
+  const partner = (at.enemyTeam || []).find(m => m && m.pid && m.pid !== pid);
+  if (partner) enc.pid2 = partner.pid;
+  autoUpdateEnc(encIdx, Object.assign(
+    { id: enc.id, name: enc.name, pid: enc.pid, status: enc.status },
+    partner ? { pid2: partner.pid } : {}
+  ));
   autoMarkRouteDone(route);
 }
 
@@ -1757,9 +1780,16 @@ function selTeamPoke(i,id,name){
 
 // ══ ENCOUNTER ══
 function syncEncountersToRoutes(){
-  const old=data.encounters||[];
+  let old=data.encounters||[];
+  // Firebase liefert sparse Indizes als OBJEKT statt Array (erster Eintrag
+  // eines frischen Runs auf hohem Routen-Index) -> ohne Normalisierung
+  // crasht .find() und der Encounter-Tab ist tot.
+  if(!Array.isArray(old)){
+    const o=old;old=[];
+    Object.keys(o).forEach(k=>{if(o[k])old[Number(k)]=o[k];});
+  }
   data.encounters=(data.routes||[]).map(r=>{
-    const existing=old.find(e=>e.route===r.name);
+    const existing=old.find(e=>e&&e.route===r.name);
     return existing||{route:r.name,id:'',name:'',status:'uncaught',note:''};
   });
 }
