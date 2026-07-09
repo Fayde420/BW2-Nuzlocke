@@ -1,7 +1,8 @@
 # BW2-Nuzlocke — Live-Tracker (Solo-Nuzlocke)
 
-Live-Anzeige eines **Solo-Nuzlockes** in Pokémon Schwarz 2: Team, PC-Box, Routen und
-Orden — direkt aus dem laufenden Spiel.
+Live-Anzeige eines **Solo-Nuzlockes** in Pokémon Schwarz 2: Team, PC-Box,
+aktueller Gegner (folgt automatisch dem Kampf), Encounter, Routen und Orden —
+direkt aus dem laufenden Spiel.
 
 **Live:** https://fayde420.github.io/BW2-Nuzlocke/  (Passwort erforderlich)
 
@@ -9,7 +10,9 @@ Orden — direkt aus dem laufenden Spiel.
 Du brauchst: **BizHawk** (melonDS-Core), dein **BW2-ROM**, **Python 3**.
 
 1. Den Ordner **`tracker/`** herunterladen.
-2. In der CMD einmalig den Ordner festlegen, dann BizHawk neu starten:
+2. In der CMD einmalig den Ordner festlegen — **Pfad an deinen echten
+   tracker-Ordner anpassen** (nicht wörtlich übernehmen!). Danach CMD **und**
+   BizHawk neu starten, sonst greift die Variable nicht:
    ```cmd
    setx AUTOTRACKER_DIR "C:\Pfad\zum\tracker"
    ```
