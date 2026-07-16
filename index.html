@@ -1161,20 +1161,17 @@ async function refreshPiEnemy() {
 
   const en = enemyTeam[_piEnemyIdx];
 
-  // Slot-Picker rendern (nur bei mehreren Gegnern); ungesehene Slots gesperrt.
+  // Slot-Picker (nur bei mehreren Gegnern). ALLE Slots anklickbar — kein
+  // RAM-Auto-Wechsel mehr (war unzuverlässig); Trainer-Mons klickt man selbst.
   if (slotsEl) {
     if (enemyTeam.length > 1) {
       slotsEl.style.display = 'flex';
       slotsEl.innerHTML = enemyTeam.map((m, i) => {
         const active = i === _piEnemyIdx;
-        const revealed = _piEnemyRevealed.has(i);
-        const gname = revealed ? ((GN && GN[m.species]) || ('#' + m.species)) : '???';
-        const title = revealed ? `${gname} (Lv${m.level ?? '?'})` : 'Noch nicht im Kampf gesehen';
-        const icon = revealed
-          ? `<img src="${spriteUrl(m.species)}" style="width:20px;height:20px;image-rendering:pixelated;">`
-          : `<span style="display:inline-flex;width:20px;height:20px;align-items:center;justify-content:center;background:var(--surface2);border:1px solid var(--border);border-radius:3px;font-weight:700;font-size:13px;color:var(--muted);">?</span>`;
-        const clickAttr = revealed ? `onclick="setPiEnemyIdx(${i})"` : '';
-        return `<button ${clickAttr} ${revealed ? '' : 'disabled'} title="${title}" style="background:${active ? 'var(--accent)' : 'var(--surface)'};border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};color:${active ? 'var(--bg)' : 'var(--text)'};padding:4px 8px;border-radius:4px;cursor:${revealed ? 'pointer' : 'default'};opacity:${revealed ? 1 : 0.6};font-family:'Exo 2',sans-serif;font-size:11px;font-weight:${active ? 700 : 500};display:flex;align-items:center;gap:4px;">${icon}${i + 1}</button>`;
+        const gname = (GN && GN[m.species]) || ('#' + m.species);
+        const title = `${gname} (Lv${m.level ?? '?'})`;
+        const icon = `<img src="${spriteUrl(m.species)}" style="width:20px;height:20px;image-rendering:pixelated;">`;
+        return `<button onclick="setPiEnemyIdx(${i})" title="${title}" style="background:${active ? 'var(--accent)' : 'var(--surface)'};border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};color:${active ? 'var(--bg)' : 'var(--text)'};padding:4px 8px;border-radius:4px;cursor:pointer;font-family:'Exo 2',sans-serif;font-size:11px;font-weight:${active ? 700 : 500};display:flex;align-items:center;gap:4px;">${icon}${i + 1}</button>`;
       }).join('');
     } else {
       slotsEl.style.display = 'none';
